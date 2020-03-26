@@ -34,6 +34,7 @@
 #include "ns3/pointer.h"
 #include "ns3/object-factory.h"
 #include "ns3/nstime.h"
+#include "ns3/pointerToConst.h"
 
 using namespace ns3;
 
@@ -215,6 +216,18 @@ public:
                      StringValue("ns3::Derived[]"),
                      MakePointerAccessor (&AttributeObjectTest::m_ptrInitialized2),
                      MakePointerChecker<Derived> ())
+	  .AddAttribute("PointerToConst","Pointer to constant help text",
+                     PointerToConstValue(),
+                     MakePointerToConstAccessor(&AttributeObjectTest::m_ptrToConst),
+                     MakePointerToConstChecker<const Derived>())
+      .AddAttribute ("PointerToConstInitialized", "help text",
+                     StringValue("ns3::Derived"),
+                     MakePointerToConstAccessor (&AttributeObjectTest::m_ptrToConstInitialized),
+                     MakePointerToConstChecker<const Derived> ())
+      .AddAttribute ("PointerToConstInitialized2", "help text",
+                     StringValue("ns3::Derived[]"),
+                     MakePointerToConstAccessor (&AttributeObjectTest::m_ptrToConstInitialized2),
+                     MakePointerToConstChecker<const Derived> ())
       .AddAttribute ("Callback", "help text",
                      CallbackValue (),
                      MakeCallbackAccessor (&AttributeObjectTest::m_cbValue),
@@ -290,6 +303,10 @@ private:
   Ptr<Derived> m_ptr;
   Ptr<Derived> m_ptrInitialized;
   Ptr<Derived> m_ptrInitialized2;
+  Ptr<const Derived> m_ptrToConst;
+  Ptr<const Derived> m_ptrToConstInitialized;
+  Ptr<const Derived> m_ptrToConstInitialized2;
+
   TracedValue<uint8_t> m_uintSrc;
   TracedValue<enum Test_e> m_enumSrc;
   TracedValue<double> m_doubleSrc;
@@ -1328,6 +1345,121 @@ PointerAttributeTestCase::DoRun (void)
   Ptr<Derived> storedPtr5 = ptr5.Get<Derived> ();
   NS_TEST_ASSERT_MSG_NE (storedPtr4, storedPtr5, "aotPtr and aotPtr2 are unique, but their Derived member is not");
 }
+
+// ===========================================================================
+// Test the Attribute type PointerToConst
+// ===========================================================================
+class PointerToConstAttributeTestCase : public TestCase
+{
+public:
+  PointerToConstAttributeTestCase (std::string description);
+  virtual ~PointerToConstAttributeTestCase () {}
+
+private:
+  virtual void DoRun (void);
+
+  void NotifySource2 (double a, int b, float c)
+  {
+    NS_UNUSED (b);
+    NS_UNUSED (c);
+    m_got2 = a;
+  }
+
+  double m_got2;
+};
+
+PointerToConstAttributeTestCase::PointerToConstAttributeTestCase (std::string description)
+  : TestCase (description)
+{
+}
+
+void
+PointerToConstAttributeTestCase::DoRun (void)
+{
+  Ptr<AttributeObjectTest> p;
+  bool ok;
+
+  p = CreateObject<AttributeObjectTest> ();
+  NS_TEST_ASSERT_MSG_NE (p, 0, "Unable to CreateObject");
+
+  //
+  // We have declared a PointerToConstValue Attribute named "PointerToConst" with a pointer
+  // checker of type Derived.  This means that we should be able to pull out
+  // a Ptr<const Derived> with the initial value (which is 0).
+  //
+  PointerToConstValue ptrToConst;
+  p->GetAttribute ("PointerToConst", ptrToConst);
+  Ptr<const Derived> derived = ptrToConst.Get<const Derived> ();
+  NS_TEST_ASSERT_MSG_EQ (derived, 0, "Unexpectedly found non-null pointer in newly initialized PointerToConstValue Attribute");
+  //
+  // Now, lets create an Object of type Derived and set the local Ptr to point
+  // to that object.  We can then set the PointerValue Attribute to that Ptr.
+  //
+  derived = Create<const Derived> ();
+  ok = p->SetAttributeFailSafe ("PointerToConst", PointerToConstValue (derived));
+  NS_TEST_ASSERT_MSG_EQ (ok, true, "Could not SetAttributeFailSafe() a PointerToConstValue of the correct type");
+
+  //
+  // Pull the value back out of the Attribute and make sure it points to the
+  // correct object.
+  //
+  p->GetAttribute ("PointerToConst", ptrToConst);
+  Ptr<const Derived> stored = ptrToConst.Get<const Derived> ();
+  NS_TEST_ASSERT_MSG_EQ (stored, derived, "Retrieved Attribute does not match stored PointerValue");
+
+  //
+  // We should be able to use the Attribute Get() just like GetObject<type>,
+  // So see if we can get a Ptr<Object> out of the Ptr<const Derived> we stored.
+  // This should be a pointer to the same physical memory since its the
+  // same object.
+  //
+  p->GetAttribute ("PointerToConst", ptrToConst);
+  Ptr<const Object> storedBase = ptrToConst.Get<const Object> ();
+  NS_TEST_ASSERT_MSG_EQ (storedBase, stored, "Retrieved Ptr<const Object> does not match stored Ptr<constDerived>");
+
+  //
+  // If we try to Get() something that is unrelated to what we stored, we should
+  // retrieve a 0.
+  //
+  p->GetAttribute ("PointerToConst", ptrToConst);
+  Ptr<const AttributeObjectTest> x = ptrToConst.Get<const AttributeObjectTest> ();
+  NS_TEST_ASSERT_MSG_EQ (x, 0, "Unexpectedly retrieved unrelated Ptr<const type> from stored Ptr<const Derived>");
+
+  //
+  // Test whether the initialized pointers from two different objects
+  // point to different Derived objects
+  //
+  p->GetAttribute ("PointerToConstInitialized", ptrToConst);
+  Ptr<const Derived> storedPtr = ptrToConst.Get<const Derived> ();
+  Ptr<const AttributeObjectTest> p2 = CreateObject<AttributeObjectTest> ();
+  PointerToConstValue ptrToConst2;
+  p2->GetAttribute ("PointerToConstInitialized", ptrToConst2);
+  Ptr<const Derived> storedPtr2 = ptrToConst2.Get<const Derived> ();
+  NS_TEST_ASSERT_MSG_NE (storedPtr, storedPtr2, "ptr and ptr2 both have PointerInitialized pointing to the same object");
+  PointerToConstValue ptrToConst3;
+  p2->GetAttribute ("PointerToConstInitialized", ptrToConst3);
+  Ptr<const Derived> storedPtr3 = ptrToConst3.Get<const Derived> ();
+  NS_TEST_ASSERT_MSG_NE (storedPtr, storedPtr3, "ptr and ptr3 both have PointerInitialized pointing to the same object");
+
+  //
+  // Test whether object factory creates the objects properly
+  //
+  ObjectFactory factory;
+  factory.SetTypeId ("ns3::AttributeObjectTest");
+  factory.Set ("PointerToConstInitialized", StringValue ("ns3::Derived"));
+  Ptr<const AttributeObjectTest> aotPtr = factory.Create ()->GetObject<const AttributeObjectTest> ();
+  NS_TEST_ASSERT_MSG_NE (aotPtr, 0, "Unable to factory.Create() a AttributeObjectTest");
+  Ptr<const AttributeObjectTest> aotPtr2 = factory.Create ()->GetObject<const AttributeObjectTest> ();
+  NS_TEST_ASSERT_MSG_NE (aotPtr2, 0, "Unable to factory.Create() a AttributeObjectTest");
+  NS_TEST_ASSERT_MSG_NE (aotPtr, aotPtr2, "factory object not creating unique objects");
+  PointerToConstValue ptrToConst4;
+  aotPtr->GetAttribute ("PointerToConstInitialized", ptrToConst4);
+  Ptr<const Derived> storedPtr4 = ptrToConst4.Get<const Derived> ();
+  PointerToConstValue ptrToConst5;
+  aotPtr2->GetAttribute ("PointerToConstInitialized", ptrToConst5);
+  Ptr<const Derived> storedPtr5 = ptrToConst5.Get<const Derived> ();
+   NS_TEST_ASSERT_MSG_NE (storedPtr4, storedPtr5, "aotPtr and aotPtr2 are unique, but their Derived member is not");
+ }
 
 // ===========================================================================
 // Test the Attributes of type CallbackValue.
